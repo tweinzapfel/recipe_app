@@ -347,7 +347,7 @@ class SavedRecipesManager:
             bool: True if recipe was saved
         """
         if st.session_state.user and recipe_content:
-            if st.button("ðŸ’¾ Save This Recipe", key=button_key, use_container_width=True):
+            if st.button("💾 Save This Recipe", key=button_key, use_container_width=True):
                 try:
                     recipe_name = extract_recipe_name(recipe_content)
                     
@@ -360,21 +360,21 @@ class SavedRecipesManager:
                     }
                     
                     if self.save_recipe(data):
-                        st.success("âœ… Recipe saved successfully! View it in the 'My Saved Recipes' tab.")
+                        st.success("✅ Recipe saved successfully! View it in the 'My Saved Recipes' tab.")
                         return True
                 except Exception as e:
                     st.error(f"Error saving recipe: {e}")
         elif not st.session_state.user:
-            st.info("ðŸ“ Create an account and log in to save your favorite recipes!")
+            st.info("🔐 Create an account and log in to save your favorite recipes!")
         
         return False
     
     def render_saved_recipes_view(self):
-        """Render the saved recipes view"""
-        st.title("ðŸ’¾ My Saved Recipes")
+        """Render the saved recipes view with filtering and sorting"""
+        st.title("💾 My Saved Recipes")
         
         # Return button
-        if st.button("â¬…ï¸ Return to Recipe Generator", key="return_btn"):
+        if st.button("⬅️ Return to Recipe Generator", key="return_btn"):
             st.session_state.show_saved_recipes = False
             st.rerun()
         
@@ -382,101 +382,255 @@ class SavedRecipesManager:
         
         if st.session_state.user is None:
             st.warning("Please log in to view your saved recipes.")
-            st.info("ðŸ‘ˆ Use the sidebar to log in or create an account.")
+            st.info("👈 Use the sidebar to log in or create an account.")
             return
         
-        st.write(f"**Logged in as:** {st.session_state.user_email}")
+        # Load all recipes
+        all_recipes = self.get_user_recipes(st.session_state.user)
         
-        recipes = self.get_user_recipes(st.session_state.user)
-        
-        if not recipes:
+        if not all_recipes:
             st.info("You haven't saved any recipes yet. Generate a recipe and click the 'Save This Recipe' button!")
             return
         
-        st.success(f"You have {len(recipes)} saved recipe(s)")
+        # Get unique values for filters
+        unique_values = self.get_unique_values(all_recipes)
         
-        # Display each saved recipe
+        # Render filter sidebar
+        self.render_filter_sidebar(unique_values)
+        
+        # Apply filters
+        filtered_recipes = self.filter_recipes(all_recipes)
+        
+        # Apply sorting
+        filtered_recipes = self.sort_recipes(filtered_recipes)
+        
+        # Display statistics
+        self.render_recipe_stats(all_recipes, filtered_recipes)
+        
+        st.markdown("---")
+        
+        # Check if any recipes match filters
+        if not filtered_recipes:
+            st.warning("No recipes match your current filters. Try adjusting or clearing filters.")
+            return
+        
+        # Display view options
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown(f"### 📖 Your Recipe Collection")
+        with col2:
+            view_mode = st.selectbox(
+                "View mode",
+                ["Expanded", "Compact"],
+                label_visibility="collapsed"
+            )
+        
+        # Active filters display
+        active_filters = []
+        if st.session_state.recipe_filters['search_query']:
+            active_filters.append(f"Search: '{st.session_state.recipe_filters['search_query']}'")
+        if st.session_state.recipe_filters['selected_cuisines']:
+            active_filters.append(f"Cuisines: {', '.join(st.session_state.recipe_filters['selected_cuisines'])}")
+        if st.session_state.recipe_filters['selected_meal_types']:
+            active_filters.append(f"Meal Types: {', '.join(st.session_state.recipe_filters['selected_meal_types'])}")
+        if st.session_state.recipe_filters['selected_complexity']:
+            active_filters.append(f"Complexity: {', '.join(st.session_state.recipe_filters['selected_complexity'])}")
+        if st.session_state.recipe_filters['selected_dietary']:
+            active_filters.append(f"Dietary: {', '.join(st.session_state.recipe_filters['selected_dietary'])}")
+        if st.session_state.recipe_filters['selected_cooking_methods']:
+            active_filters.append(f"Methods: {', '.join(st.session_state.recipe_filters['selected_cooking_methods'])}")
+        
+        if active_filters:
+            st.info(f"**Active filters:** {' | '.join(active_filters)}")
+        
+        # Display recipes based on view mode
+        if view_mode == "Compact":
+            self._render_compact_view(filtered_recipes)
+        else:
+            self._render_expanded_view(filtered_recipes)
+    
+    def _render_compact_view(self, recipes: List[Dict]):
+        """
+        Render recipes in a compact table-like view
+        
+        Args:
+            recipes: List of filtered and sorted recipes
+        """
         for idx, recipe in enumerate(recipes):
-            self._render_recipe_card(recipe, idx)
+            with st.container():
+                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+                
+                with col1:
+                    # Recipe name with expander
+                    recipe_name = recipe.get('recipe_name', 'Untitled Recipe')
+                    with st.expander(f"📖 {recipe_name}"):
+                        self._render_full_recipe_content(recipe, idx)
+                
+                with col2:
+                    # Quick info tags
+                    tags = []
+                    if recipe.get('cuisine'):
+                        tags.append(recipe['cuisine'])
+                    if recipe.get('meal_type'):
+                        tags.append(recipe['meal_type'])
+                    if tags:
+                        st.caption(" | ".join(tags))
+                
+                with col3:
+                    # Date
+                    date_str = recipe.get('created_at', '')[:10] if recipe.get('created_at') else 'N/A'
+                    st.caption(f"📅 {date_str}")
+                
+                with col4:
+                    # Quick actions
+                    if st.button("🗑️", key=f"quick_delete_{recipe['id']}", help="Delete recipe"):
+                        if self.delete_recipe(recipe['id']):
+                            st.success("Recipe deleted!")
+                            st.rerun()
+    
+    def _render_expanded_view(self, recipes: List[Dict]):
+        """
+        Render recipes in expanded card view
+        
+        Args:
+            recipes: List of filtered and sorted recipes
+        """
+        # Display recipes in a grid layout
+        cols_per_row = 2
+        for i in range(0, len(recipes), cols_per_row):
+            cols = st.columns(cols_per_row)
+            
+            for j, col in enumerate(cols):
+                if i + j < len(recipes):
+                    with col:
+                        self._render_recipe_card(recipes[i + j], i + j)
     
     def _render_recipe_card(self, recipe: Dict[str, Any], idx: int):
         """
-        Render a single recipe card in the saved recipes view
+        Render a single recipe card
         
         Args:
             recipe: Recipe data dictionary
             idx: Index for unique keys
         """
-        # Build metadata display
-        metadata_parts = []
-        if recipe.get('cuisine'):
-            metadata_parts.append(f"ðŸ½ï¸ {recipe['cuisine']}")
-        if recipe.get('occasion'):
-            metadata_parts.append(f"ðŸŽ‰ {recipe['occasion']}")
-        if recipe.get('meal_type'):
-            metadata_parts.append(f"ðŸ´ {recipe['meal_type']}")
-        if recipe.get('complexity'):
-            metadata_parts.append(f"âš¡ {recipe['complexity']}")
-        if recipe.get('cooking_method'):
-            metadata_parts.append(f"ðŸ”¥ {recipe['cooking_method']}")
-        if recipe.get('dietary_tags') and len(recipe['dietary_tags']) > 0:
-            metadata_parts.append(f"âœ“ {', '.join(recipe['dietary_tags'])}")
+        with st.container():
+            # Card header with colored background based on meal type
+            meal_colors = {
+                'Dinner': '🌆', 'Lunch': '☀️', 'Breakfast/Brunch': '🌅',
+                'Appetizer': '🥨', 'Snack': '🍿', 'Dessert': '🍰', 'Side Dish': '🥗'
+            }
+            meal_icon = meal_colors.get(recipe.get('meal_type', ''), '🍽️')
+            
+            st.markdown(f"### {meal_icon} {recipe.get('recipe_name', 'Untitled Recipe')}")
+            
+            # Metadata badges
+            metadata_parts = []
+            if recipe.get('cuisine'):
+                metadata_parts.append(f"**{recipe['cuisine']}**")
+            if recipe.get('complexity'):
+                metadata_parts.append(f"*{recipe['complexity']}*")
+            if recipe.get('occasion'):
+                metadata_parts.append(f"🎉 {recipe['occasion']}")
+            
+            if metadata_parts:
+                st.caption(" | ".join(metadata_parts))
+            
+            # Dietary tags
+            if recipe.get('dietary_tags') and len(recipe['dietary_tags']) > 0:
+                tag_string = " ".join([f"`{tag}`" for tag in recipe['dietary_tags']])
+                st.markdown(tag_string)
+            
+            # Date
+            date_str = recipe.get('created_at', '')[:10] if recipe.get('created_at') else 'N/A'
+            st.caption(f"Saved on: {date_str}")
+            
+            # Recipe content in expander
+            with st.expander("View Full Recipe", expanded=False):
+                self._render_full_recipe_content(recipe, idx)
+    
+    def _render_full_recipe_content(self, recipe: Dict[str, Any], idx: int):
+        """
+        Render the full recipe content with actions
         
-        metadata_display = " | ".join(metadata_parts) if metadata_parts else ""
+        Args:
+            recipe: Recipe data dictionary
+            idx: Index for unique keys
+        """
+        # Full metadata display
+        st.markdown("**Recipe Details:**")
+        metadata_cols = st.columns(3)
         
-        with st.expander(f"ðŸ“– {recipe.get('recipe_name', 'Untitled Recipe')} - {recipe.get('created_at', '')[:10]}"):
-            # Display metadata tags
-            if metadata_display:
-                st.markdown(f"**{metadata_display}**")
-                st.markdown("---")
-            
-            st.markdown("### Recipe Details")
-            st.write(recipe.get('recipe_content', 'No content available'))
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Button to delete recipe
-                if st.button(f"ðŸ—‘ï¸ Delete", key=f"delete_{recipe['id']}"):
-                    if self.delete_recipe(recipe['id']):
-                        st.success("Recipe deleted!")
-                        st.rerun()
-            
-            with col2:
-                # Button to generate recipe card from saved recipe
-                if st.button(f"ðŸ–¨ï¸ Print Card", key=f"print_{recipe['id']}"):
-                    with st.spinner("Creating recipe card..."):
-                        recipe_card = generate_recipe_card(recipe.get('recipe_content', ''))
-                        recipe_html = create_recipe_card_html(recipe_card)
+        with metadata_cols[0]:
+            if recipe.get('recipe_type'):
+                st.caption(f"Type: {recipe['recipe_type'].title()}")
+            if recipe.get('cuisine'):
+                st.caption(f"Cuisine: {recipe['cuisine']}")
+        
+        with metadata_cols[1]:
+            if recipe.get('meal_type'):
+                st.caption(f"Meal: {recipe['meal_type']}")
+            if recipe.get('complexity'):
+                st.caption(f"Difficulty: {recipe['complexity']}")
+        
+        with metadata_cols[2]:
+            if recipe.get('cooking_method'):
+                st.caption(f"Method: {recipe['cooking_method']}")
+            if recipe.get('occasion'):
+                st.caption(f"Occasion: {recipe['occasion']}")
+        
+        st.markdown("---")
+        
+        # Recipe content
+        st.markdown("### Instructions")
+        st.write(recipe.get('recipe_content', 'No content available'))
+        
+        st.markdown("---")
+        
+        # Action buttons - 3 columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Delete button
+            if st.button(f"🗑️ Delete Recipe", key=f"delete_{recipe['id']}_{idx}"):
+                if self.delete_recipe(recipe['id']):
+                    st.success("Recipe deleted!")
+                    st.rerun()
+        
+        with col2:
+            # Print card button
+            if st.button(f"🖨️ Print Card", key=f"print_{recipe['id']}_{idx}"):
+                with st.spinner("Creating recipe card..."):
+                    recipe_card = generate_recipe_card(recipe.get('recipe_content', ''))
+                    recipe_html = create_recipe_card_html(recipe_card)
+                    
+                    # Display the print button
+                    st.components.v1.html(
+                        f"""
+                        <button onclick="openRecipeSaved{idx}()" style="
+                            display: inline-block;
+                            padding: 10px 20px;
+                            background-color: #2c5530;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-weight: bold;
+                            cursor: pointer;
+                            font-size: 14px;
+                        ">
+                            🖨️ Open in New Window
+                        </button>
                         
-                        # Display the print button
-                        st.components.v1.html(
-                            f"""
-                            <button onclick="openRecipeSaved{idx}()" style="
-                                display: inline-block;
-                                padding: 10px 20px;
-                                background-color: #2c5530;
-                                color: white;
-                                border: none;
-                                border-radius: 5px;
-                                font-weight: bold;
-                                cursor: pointer;
-                                font-size: 14px;
-                            ">
-                                ðŸ–¨ï¸ Open Recipe Card
-                            </button>
-                            
-                            <script>
-                            function openRecipeSaved{idx}() {{
-                                var recipeHTML = `{recipe_html.replace('`', '\\`')}`;
-                                var newWindow = window.open('', '_blank', 'width=900,height=800');
-                                newWindow.document.write(recipeHTML);
-                                newWindow.document.close();
-                            }}
-                            </script>
-                            """,
-                            height=60
-                        )
+                        <script>
+                        function openRecipeSaved{idx}() {{
+                            var recipeHTML = `{recipe_html.replace('`', '\\`')}`;
+                            var newWindow = window.open('', '_blank', 'width=900,height=800');
+                            newWindow.document.write(recipeHTML);
+                            newWindow.document.close();
+                        }}
+                        </script>
+                        """,
+                        height=60
+                    )
         
         with col3:
             # Shopping list button
