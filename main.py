@@ -55,7 +55,7 @@ if "page" not in st.session_state:
 # Initialize managers
 auth_manager = AuthManager()
 recipe_gen = RecipeGenerator()
-saved_recipes_manager = SavedRecipesManager(auth_manager.supabase_admin)
+saved_recipes_manager = SavedRecipesManager(auth_manager.supabase)
 
 # Streamlit UI
 st.title("🍴 Dinner Recipe Maker")

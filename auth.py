@@ -11,25 +11,31 @@ class AuthManager:
     """Manages user authentication and session state"""
     
     def __init__(self):
-        """Initialize Supabase clients"""
+        """Initialize Supabase client"""
         self.supabase = None
-        self.supabase_admin = None
         self._initialize_clients()
     
     def _initialize_clients(self):
-        """Initialize Supabase clients with proper error handling"""
+        """Initialize Supabase client with proper error handling"""
         try:
-            # Get Supabase client for authentication (uses anon key)
             self.supabase = create_client(
                 st.secrets["supabase_url"],
                 st.secrets["supabase_key"]
             )
-            
-            # Get Supabase admin client for database operations (uses service role key)
-            self.supabase_admin = create_client(
-                st.secrets["supabase_url"],
-                st.secrets["supabase_service_role_key"]
-            )
+
+            # Restore session if user was previously logged in
+            if st.session_state.get('access_token') and st.session_state.get('refresh_token'):
+                try:
+                    self.supabase.auth.set_session(
+                        st.session_state.access_token,
+                        st.session_state.refresh_token
+                    )
+                except Exception:
+                    # Session expired; user will need to log in again
+                    st.session_state.user = None
+                    st.session_state.user_email = None
+                    st.session_state.access_token = None
+                    st.session_state.refresh_token = None
         except Exception as e:
             st.error(f"Error connecting to Supabase: {e}")
             st.info("Please check your Supabase configuration in secrets.toml")
@@ -58,6 +64,7 @@ class AuthManager:
                 st.session_state.user = response.user.id
                 st.session_state.user_email = response.user.email
                 st.session_state.access_token = response.session.access_token
+                st.session_state.refresh_token = response.session.refresh_token
                 return True
         except Exception as e:
             st.error(f"Login failed: {str(e)}")
@@ -95,6 +102,7 @@ class AuthManager:
         st.session_state.user = None
         st.session_state.user_email = None
         st.session_state.access_token = None
+        st.session_state.refresh_token = None
         st.session_state.show_saved_recipes = False
     
     def is_authenticated(self) -> bool:

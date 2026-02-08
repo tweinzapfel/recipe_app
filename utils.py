@@ -32,6 +32,7 @@ def initialize_session_state():
         'user': None,
         'user_email': None,
         'access_token': None,
+        'refresh_token': None,
         'show_saved_recipes': False,
         'occasion_recipe_content': "",
         'occasion_shopping_list': "",

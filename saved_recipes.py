@@ -4,6 +4,7 @@ Handles saving, loading, and displaying saved recipes with advanced filtering an
 """
 
 import streamlit as st
+import base64
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 from utils import generate_recipe_card, create_recipe_card_html, extract_recipe_name, generate_shopping_list
@@ -11,14 +12,14 @@ from utils import generate_recipe_card, create_recipe_card_html, extract_recipe_
 class SavedRecipesManager:
     """Manages saved recipes functionality"""
     
-    def __init__(self, supabase_admin):
+    def __init__(self, supabase_client):
         """
         Initialize the saved recipes manager
         
         Args:
-            supabase_admin: Supabase admin client for database operations
+            supabase_client: Supabase client for database operations (uses anon key with RLS)
         """
-        self.supabase_admin = supabase_admin
+        self.supabase_client = supabase_client
         self._initialize_filter_state()
     
     def _initialize_filter_state(self):
@@ -44,7 +45,7 @@ class SavedRecipesManager:
         Returns:
             bool: True if save successful, False otherwise
         """
-        if not self.supabase_admin:
+        if not self.supabase_client:
             st.error("Database connection not available")
             return False
         
@@ -53,7 +54,7 @@ class SavedRecipesManager:
             if 'created_at' not in recipe_data:
                 recipe_data['created_at'] = datetime.now().isoformat()
             
-            response = self.supabase_admin.table("saved_recipes").insert(recipe_data).execute()
+            response = self.supabase_client.table("saved_recipes").insert(recipe_data).execute()
             return True
         except Exception as e:
             st.error(f"Error saving recipe: {e}")
@@ -69,12 +70,12 @@ class SavedRecipesManager:
         Returns:
             bool: True if delete successful, False otherwise
         """
-        if not self.supabase_admin:
+        if not self.supabase_client:
             st.error("Database connection not available")
             return False
         
         try:
-            self.supabase_admin.table("saved_recipes").delete().eq("id", recipe_id).execute()
+            self.supabase_client.table("saved_recipes").delete().eq("id", recipe_id).execute()
             return True
         except Exception as e:
             st.error(f"Error deleting recipe: {e}")
@@ -90,11 +91,11 @@ class SavedRecipesManager:
         Returns:
             List of recipe dictionaries or None if error
         """
-        if not self.supabase_admin:
+        if not self.supabase_client:
             return None
         
         try:
-            response = self.supabase_admin.table("saved_recipes").select("*").eq(
+            response = self.supabase_client.table("saved_recipes").select("*").eq(
                 "user_id", user_id
             ).order("created_at", desc=True).execute()
             return response.data
@@ -603,7 +604,9 @@ class SavedRecipesManager:
                     recipe_card = generate_recipe_card(recipe.get('recipe_content', ''))
                     recipe_html = create_recipe_card_html(recipe_card)
                     
-                    # Display the print button
+                    # Base64-encode HTML to prevent XSS from AI-generated content
+                    encoded_html = base64.b64encode(recipe_html.encode('utf-8')).decode('ascii')
+
                     st.components.v1.html(
                         f"""
                         <button onclick="openRecipeSaved{idx}()" style="
@@ -619,10 +622,11 @@ class SavedRecipesManager:
                         ">
                             🖨️ Open in New Window
                         </button>
-                        
+
                         <script>
                         function openRecipeSaved{idx}() {{
-                            var recipeHTML = `{recipe_html.replace('`', '\\`')}`;
+                            var encoded = "{encoded_html}";
+                            var recipeHTML = decodeURIComponent(escape(atob(encoded)));
                             var newWindow = window.open('', '_blank', 'width=900,height=800');
                             newWindow.document.write(recipeHTML);
                             newWindow.document.close();

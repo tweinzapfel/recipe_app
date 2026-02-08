@@ -161,10 +161,13 @@ class RecipeGenerator:
         # Display recipe card if it exists
         if st.session_state.get(f"{recipe_type}_recipe_card"):
             recipe_html = create_recipe_card_html(st.session_state[f"{recipe_type}_recipe_card"])
-            
+
             # Unique function name for each recipe type
             func_name = f"openRecipe{recipe_type.capitalize()}"
-            
+
+            # Base64-encode HTML to prevent XSS from AI-generated content
+            encoded_html = base64.b64encode(recipe_html.encode('utf-8')).decode('ascii')
+
             st.components.v1.html(
                 f"""
                 <button onclick="{func_name}()" style="
@@ -180,10 +183,11 @@ class RecipeGenerator:
                 ">
                     🖨️ Open Recipe Card in New Window (Ready to Print)
                 </button>
-                
+
                 <script>
                 function {func_name}() {{
-                    var recipeHTML = `{recipe_html.replace('`', '\\`')}`;
+                    var encoded = "{encoded_html}";
+                    var recipeHTML = decodeURIComponent(escape(atob(encoded)));
                     var newWindow = window.open('', '_blank', 'width=900,height=800');
                     newWindow.document.write(recipeHTML);
                     newWindow.document.close();
