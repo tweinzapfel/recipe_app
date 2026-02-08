@@ -97,47 +97,85 @@ def get_current_holiday() -> Tuple[str, str]:
 def extract_recipe_name(recipe_content: str) -> str:
     """
     Extract just the recipe name from the AI response
-    
+
     Args:
         recipe_content: The full recipe text from AI
-        
+
     Returns:
         str: Clean recipe name
     """
     lines = recipe_content.split('\n')
-    
+
+    # Pass 1: Look for markdown headers — most reliable title indicator
     for line in lines:
-        # Skip empty lines
-        if not line.strip():
-            continue
-        
-        # Clean up the line
-        clean_line = line.strip()
-        
-        # Skip common non-recipe-name patterns
-        skip_patterns = [
-            'here', 'recipe', 'suggest', 'perfect', 'delicious', 'enjoy',
-            'this is', 'try this', 'servings:', 'prep time:', 'cook time:',
-            'ingredients:', 'instructions:', 'directions:', '---', '**'
-        ]
-        
-        # Check if line contains skip patterns (case insensitive)
-        if any(pattern in clean_line.lower() for pattern in skip_patterns):
-            continue
-        
-        # Remove markdown formatting
-        clean_line = clean_line.replace('#', '').replace('*', '').strip()
-        
-        # If line is reasonable length for a recipe name (5-80 chars) and doesn't start with a number
-        if 5 <= len(clean_line) <= 80 and not clean_line[0].isdigit():
-            return clean_line
-    
-    # Fallback: return first non-empty line, cleaned
+        stripped = line.strip()
+        if stripped.startswith('#'):
+            name = stripped.lstrip('#').strip()
+            # Skip section headers like "## Ingredients"
+            section_words = [
+                'ingredients', 'instructions', 'directions', 'steps',
+                'tips', 'notes', 'shopping', 'servings'
+            ]
+            if name and len(name) >= 3 and not any(
+                name.lower().startswith(w) for w in section_words
+            ):
+                return name[:80]
+
+    # Pass 2: Look for standalone bold lines like **Recipe Name**
     for line in lines:
-        clean_line = line.strip().replace('#', '').replace('*', '').strip()
-        if clean_line and len(clean_line) > 3:
-            return clean_line[:80]  # Limit to 80 chars
-    
+        stripped = line.strip()
+        match = re.match(r'^\*\*(.+?)\*\*$', stripped)
+        if match:
+            name = match.group(1).strip()
+            section_words = [
+                'ingredients', 'instructions', 'directions', 'steps',
+                'tips', 'notes', 'servings', 'prep time', 'cook time',
+                'total time', 'shopping'
+            ]
+            if len(name) >= 3 and not any(
+                name.lower().startswith(w) for w in section_words
+            ):
+                return name[:80]
+
+    # Pass 3: First meaningful line that looks like a title
+    intro_patterns = [
+        'here', 'suggest', 'perfect', 'delicious', 'enjoy',
+        'this is', 'try this', 'sure!', 'absolutely', 'great choice',
+    ]
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        lower = stripped.lower()
+
+        # Skip intro/filler lines
+        if any(p in lower for p in intro_patterns):
+            continue
+        # Skip metadata lines
+        if any(p in lower for p in [
+            'servings:', 'prep time:', 'cook time:', 'total time:',
+            'ingredients:', 'instructions:', 'directions:', '---',
+        ]):
+            continue
+        # Skip list items (ingredients / bullet points)
+        if stripped.startswith('-') or stripped.startswith('•'):
+            continue
+        # Skip numbered instruction lines
+        if re.match(r'^\d+[\.\)]\s', stripped):
+            continue
+
+        # Clean markdown formatting
+        clean = stripped.replace('#', '').replace('*', '').strip()
+
+        if 3 <= len(clean) <= 80:
+            return clean
+
+    # Fallback
+    for line in lines:
+        clean = line.strip().replace('#', '').replace('*', '').strip()
+        if clean and len(clean) > 3:
+            return clean[:80]
+
     return "Untitled Recipe"
 
 def generate_shopping_list(recipe_text: str, available_ingredients: str = "") -> str:
