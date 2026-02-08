@@ -12,6 +12,7 @@ import io
 from auth import AuthManager
 from recipe_generator import RecipeGenerator
 from saved_recipes import SavedRecipesManager
+from meal_planner import MealPlanner
 from utils import (
     get_current_holiday,
     extract_recipe_name,
@@ -56,6 +57,7 @@ if "page" not in st.session_state:
 auth_manager = AuthManager()
 recipe_gen = RecipeGenerator()
 saved_recipes_manager = SavedRecipesManager(auth_manager.supabase)
+meal_planner = MealPlanner(auth_manager.supabase)
 
 # Streamlit UI
 st.title("🍴 Dinner Recipe Maker")
@@ -75,6 +77,7 @@ with st.sidebar:
     nav_options = ["Recipe Generator"]
     if st.session_state.user:
         nav_options.append("Saved Recipes")
+        nav_options.append("Meal Planner")
     nav_options.append("About")
 
     selected = st.radio(
@@ -165,6 +168,9 @@ with st.sidebar:
 # -------------------------
 if st.session_state.page == "Saved Recipes":
     saved_recipes_manager.render_saved_recipes_view()
+
+elif st.session_state.page == "Meal Planner":
+    meal_planner.render_meal_planner_view()
 
 elif st.session_state.page == "About":
     st.subheader("About Dinner Recipe Maker")

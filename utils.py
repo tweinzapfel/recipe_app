@@ -262,6 +262,64 @@ def generate_recipe_card(recipe_text: str) -> str:
     except Exception as e:
         return f"Error generating recipe card: {e}"
 
+def generate_weekly_shopping_list(combined_recipe_text: str) -> str:
+    """
+    Generate a combined shopping list from multiple recipes for a week's meal plan.
+
+    Args:
+        combined_recipe_text: Concatenated text of all recipes for the week
+
+    Returns:
+        str: Formatted combined shopping list with deduplication
+    """
+    client = get_openai_client()
+
+    try:
+        prompt = f"""
+        I have the following recipes planned for the week:
+
+        {combined_recipe_text}
+
+        Please create a COMBINED, DEDUPLICATED shopping list by:
+        1. Extracting all ingredients from ALL recipes above
+        2. Combining duplicate ingredients and summing their quantities
+           (e.g., if two recipes need 1 cup of rice each, list "Rice (2 cups)")
+        3. Organizing by grocery store sections (Produce, Meat/Seafood, Dairy, Pantry, etc.)
+        4. Noting which recipe(s) each ingredient is used in
+
+        Format as:
+        **WEEKLY SHOPPING LIST**
+
+        **Produce:**
+        - item (total quantity) - used in: Recipe A, Recipe B
+
+        **Meat/Seafood:**
+        - item (total quantity) - used in: Recipe A
+
+        **Dairy:**
+        - item (total quantity) - used in: Recipe B
+
+        **Pantry/Dry Goods:**
+        - item (total quantity) - used in: Recipe A, Recipe C
+
+        **Other:**
+        - item (total quantity) - used in: Recipe B
+
+        Be smart about combining similar items. Skip very common pantry staples
+        like salt, pepper, and cooking oil unless large quantities are needed.
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful shopping assistant who creates organized, deduplicated grocery lists from multiple recipes for weekly meal planning."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error generating weekly shopping list: {e}"
+
 def create_recipe_card_html(recipe_card_content: str) -> str:
     """
     Convert markdown recipe card to HTML for printing
