@@ -305,33 +305,28 @@ class SavedRecipesManager:
     
     def render_recipe_stats(self, all_recipes: List[Dict], filtered_recipes: List[Dict]):
         """
-        Render recipe statistics
-        
+        Render recipe statistics in a compact single line.
+
         Args:
             all_recipes: All user recipes
             filtered_recipes: Filtered recipes
         """
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Recipes", len(all_recipes))
-        
-        with col2:
-            st.metric("Showing", len(filtered_recipes))
-        
-        with col3:
-            # Count recipes by type
-            recipe_types = {}
-            for r in all_recipes:
-                r_type = r.get('recipe_type', 'Unknown')
-                recipe_types[r_type] = recipe_types.get(r_type, 0) + 1
-            most_common = max(recipe_types.items(), key=lambda x: x[1])[0] if recipe_types else "N/A"
-            st.metric("Most Common Type", most_common.title())
-        
-        with col4:
-            # Count unique cuisines
-            unique_cuisines = len(set(r.get('cuisine', '') for r in all_recipes if r.get('cuisine')))
-            st.metric("Cuisines Tried", unique_cuisines)
+        # Count recipes by type
+        recipe_types: Dict[str, int] = {}
+        for r in all_recipes:
+            r_type = r.get('recipe_type', 'Unknown')
+            recipe_types[r_type] = recipe_types.get(r_type, 0) + 1
+        most_common = max(recipe_types.items(), key=lambda x: x[1])[0].title() if recipe_types else "N/A"
+
+        unique_cuisines = len(set(r.get('cuisine', '') for r in all_recipes if r.get('cuisine')))
+
+        showing_text = f"**{len(filtered_recipes)}** of **{len(all_recipes)}** recipes"
+        if len(filtered_recipes) != len(all_recipes):
+            showing_text += " (filtered)"
+
+        st.caption(
+            f"{showing_text}  ·  Most common: {most_common}  ·  {unique_cuisines} cuisine(s) tried"
+        )
     
     def render_save_button(self, recipe_content: str, recipe_type: str, 
                           recipe_metadata: Dict[str, Any], button_key: str) -> bool:
@@ -405,26 +400,24 @@ class SavedRecipesManager:
         # Apply sorting
         filtered_recipes = self.sort_recipes(filtered_recipes)
         
-        # Display statistics
+        # Display view options and statistics on one line
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("### 📖 Your Recipe Collection")
+        with col2:
+            view_mode = st.selectbox(
+                "View mode",
+                ["Compact", "Expanded"],
+                label_visibility="collapsed"
+            )
+
+        # Compact stats line
         self.render_recipe_stats(all_recipes, filtered_recipes)
-        
-        st.markdown("---")
-        
+
         # Check if any recipes match filters
         if not filtered_recipes:
             st.warning("No recipes match your current filters. Try adjusting or clearing filters.")
             return
-        
-        # Display view options
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown(f"### 📖 Your Recipe Collection")
-        with col2:
-            view_mode = st.selectbox(
-                "View mode",
-                ["Expanded", "Compact"],
-                label_visibility="collapsed"
-            )
         
         # Active filters display
         active_filters = []
