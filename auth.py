@@ -137,12 +137,32 @@ class AuthManager:
                 self.logout()
                 st.rerun()
     
+    def reset_password(self, email: str) -> bool:
+        """
+        Send a password reset email via Supabase.
+
+        Args:
+            email: The user's email address
+
+        Returns:
+            bool: True if the reset email was sent successfully
+        """
+        if not self.supabase:
+            st.error("Authentication service is not available")
+            return False
+        try:
+            self.supabase.auth.reset_password_email(email)
+            return True
+        except Exception as e:
+            st.error(f"Password reset failed: {str(e)}")
+            return False
+
     def _render_login_form(self):
         """Render the login form"""
         st.subheader("Login")
         login_email = st.text_input("Email", key="login_email")
         login_password = st.text_input("Password", type="password", key="login_password")
-        
+
         if st.button("Login", key="login_btn"):
             if login_email and login_password:
                 if self.login(login_email, login_password):
@@ -150,6 +170,13 @@ class AuthManager:
                     st.rerun()
             else:
                 st.warning("Please enter email and password")
+
+        if st.button("Forgot Password?", key="forgot_pw_btn"):
+            if login_email:
+                if self.reset_password(login_email):
+                    st.success("Password reset email sent! Check your inbox.")
+            else:
+                st.warning("Please enter your email address above first.")
     
     def _render_signup_form(self):
         """Render the signup form"""
