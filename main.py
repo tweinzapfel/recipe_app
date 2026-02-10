@@ -194,19 +194,6 @@ else:
     elif holiday_name:
         st.success(f"🍂 **{holiday_name}** - Great time for {holiday_desc}")
 
-    # Helpful: show current preferences in a compact way (optional)
-    with st.expander("Current preferences", expanded=False):
-        st.write(
-            {
-                "Servings": st.session_state.pref_servings,
-                "Time limit (min)": st.session_state.pref_time_limit,
-                "Dietary": st.session_state.pref_dietary,
-                "Spice level": st.session_state.pref_spice_level,
-                "Budget": st.session_state.pref_budget,
-                "Leftover-friendly": st.session_state.pref_include_leftovers
-            }
-        )
-
     tab1, tab2, tab3, tab4 = st.tabs([
         "🍽️ Recipe by Cuisine",
         "🥘 Recipe by Fridge Items",
