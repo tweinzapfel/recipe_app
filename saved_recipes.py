@@ -452,16 +452,14 @@ class SavedRecipesManager:
         """
         for idx, recipe in enumerate(recipes):
             with st.container():
+                # Summary row with columns
                 col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
-                
+                recipe_name = recipe.get('recipe_name', 'Untitled Recipe')
+
                 with col1:
-                    # Recipe name with expander
-                    recipe_name = recipe.get('recipe_name', 'Untitled Recipe')
-                    with st.expander(f"📖 {recipe_name}"):
-                        self._render_full_recipe_content(recipe, idx)
-                
+                    st.markdown(f"**📖 {recipe_name}**")
+
                 with col2:
-                    # Quick info tags
                     tags = []
                     if recipe.get('cuisine'):
                         tags.append(recipe['cuisine'])
@@ -469,18 +467,20 @@ class SavedRecipesManager:
                         tags.append(recipe['meal_type'])
                     if tags:
                         st.caption(" | ".join(tags))
-                
+
                 with col3:
-                    # Date
                     date_str = recipe.get('created_at', '')[:10] if recipe.get('created_at') else 'N/A'
                     st.caption(f"📅 {date_str}")
-                
+
                 with col4:
-                    # Quick actions
                     if st.button("🗑️", key=f"quick_delete_{recipe['id']}", help="Delete recipe"):
                         if self.delete_recipe(recipe['id']):
                             st.success("Recipe deleted!")
                             st.rerun()
+
+                # Expander spans full width below the summary row
+                with st.expander("View Full Recipe", expanded=False):
+                    self._render_full_recipe_content(recipe, idx)
     
     def _render_expanded_view(self, recipes: List[Dict]):
         """
