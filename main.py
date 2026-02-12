@@ -41,7 +41,8 @@ def initialize_preferences():
         "pref_dietary": [],             # multi-select
         "pref_spice_level": "Medium",   # Low/Medium/Hot
         "pref_budget": "Medium",        # Low/Medium/High
-        "pref_include_leftovers": False
+        "pref_include_leftovers": False,
+        "pref_allergies": []
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -119,10 +120,24 @@ with st.sidebar:
                 "Low carb",
                 "Keto",
                 "Pescatarian",
-                "Nut-free"
+                "Nut-free",
+                "Paleo",
+                "Low-sodium",
+                "High-fiber",
+                "High-protein"
             ],
             default=st.session_state.pref_dietary,
             key="pref_dietary"
+        )
+
+        st.multiselect(
+            "Allergies",
+            options=[
+                "Nuts", "Shellfish", "Eggs", "Soy",
+                "Fish", "Sesame", "Other"
+            ],
+            default=st.session_state.pref_allergies,
+            key="pref_allergies"
         )
 
         st.radio(
@@ -156,7 +171,8 @@ with st.sidebar:
             "pref_dietary",
             "pref_spice_level",
             "pref_budget",
-            "pref_include_leftovers"
+            "pref_include_leftovers",
+            "pref_allergies"
         ]:
             if k in st.session_state:
                 del st.session_state[k]

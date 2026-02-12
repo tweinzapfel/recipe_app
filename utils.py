@@ -9,9 +9,9 @@ from openai import OpenAI
 import re
 from typing import Tuple, Optional
 
-# Initialize OpenAI client
+@st.cache_resource
 def get_openai_client():
-    """Get OpenAI client with API key from secrets"""
+    """Get OpenAI client with API key from secrets (cached across reruns)"""
     return OpenAI(api_key=st.secrets["api_key"])
 
 def initialize_session_state():
@@ -227,7 +227,7 @@ def generate_shopping_list(recipe_text: str, available_ingredients: str = "") ->
         """
         
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful shopping assistant who creates organized grocery lists from recipes."},
                 {"role": "user", "content": prompt}
@@ -290,7 +290,7 @@ def generate_recipe_card(recipe_text: str) -> str:
         """
         
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant who creates beautifully formatted, print-friendly recipe cards. Always use sequential numbering (1. 2. 3. 4.) for instructions, never repeat '1.' for each step."},
                 {"role": "user", "content": prompt}
@@ -348,7 +348,7 @@ def generate_weekly_shopping_list(combined_recipe_text: str) -> str:
         """
 
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful shopping assistant who creates organized, deduplicated grocery lists from multiple recipes for weekly meal planning."},
                 {"role": "user", "content": prompt}

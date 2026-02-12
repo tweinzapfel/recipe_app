@@ -42,6 +42,8 @@ class MealPlanner:
             st.session_state.meal_planner_week_start = monday
         if "meal_planner_shopping_list" not in st.session_state:
             st.session_state.meal_planner_shopping_list = ""
+        if "confirm_delete_meal_id" not in st.session_state:
+            st.session_state.confirm_delete_meal_id = None
 
     # ------------------------------------------------------------------
     # CRUD helpers
@@ -240,9 +242,22 @@ class MealPlanner:
                             st.markdown(f"**{meal['recipe_name']}**")
                             if meal.get("notes"):
                                 st.caption(meal["notes"])
-                            if st.button("✕", key=f"del_{meal['id']}", help="Remove from plan"):
-                                if self.remove_meal_from_plan(meal["id"]):
-                                    st.session_state.meal_planner_shopping_list = ""
+                            if st.session_state.confirm_delete_meal_id == meal['id']:
+                                st.caption("Remove?")
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    if st.button("Yes", key=f"confirm_meal_{meal['id']}", help="Confirm"):
+                                        if self.remove_meal_from_plan(meal['id']):
+                                            st.session_state.confirm_delete_meal_id = None
+                                            st.session_state.meal_planner_shopping_list = ""
+                                            st.rerun()
+                                with c2:
+                                    if st.button("No", key=f"cancel_meal_{meal['id']}", help="Cancel"):
+                                        st.session_state.confirm_delete_meal_id = None
+                                        st.rerun()
+                            else:
+                                if st.button("✕", key=f"del_{meal['id']}", help="Remove from plan"):
+                                    st.session_state.confirm_delete_meal_id = meal['id']
                                     st.rerun()
                     else:
                         st.caption("—")

@@ -4,7 +4,6 @@ Handles saving, loading, and displaying saved recipes with advanced filtering an
 """
 
 import streamlit as st
-import base64
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 from utils import generate_recipe_card, create_recipe_card_html, extract_recipe_name, generate_shopping_list
@@ -34,6 +33,8 @@ class SavedRecipesManager:
                 'selected_cooking_methods': [],
                 'sort_by': 'Date (Newest First)'
             }
+        if 'confirm_delete_id' not in st.session_state:
+            st.session_state.confirm_delete_id = None
     
     def save_recipe(self, recipe_data: Dict[str, Any]) -> bool:
         """
@@ -474,8 +475,21 @@ class SavedRecipesManager:
 
                 with col4:
                     if st.button("🗑️", key=f"quick_delete_{recipe['id']}", help="Delete recipe"):
-                        if self.delete_recipe(recipe['id']):
-                            st.success("Recipe deleted!")
+                        st.session_state.confirm_delete_id = recipe['id']
+                        st.rerun()
+
+                # Confirmation row if this recipe is pending delete
+                if st.session_state.confirm_delete_id == recipe['id']:
+                    st.warning(f"Delete **{recipe_name}**? This cannot be undone.")
+                    c1, c2, _ = st.columns([1, 1, 4])
+                    with c1:
+                        if st.button("Yes, delete", key=f"confirm_del_{recipe['id']}"):
+                            if self.delete_recipe(recipe['id']):
+                                st.session_state.confirm_delete_id = None
+                                st.rerun()
+                    with c2:
+                        if st.button("Cancel", key=f"cancel_del_{recipe['id']}"):
+                            st.session_state.confirm_delete_id = None
                             st.rerun()
 
                 # Expander spans full width below the summary row
@@ -584,10 +598,19 @@ class SavedRecipesManager:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Delete button
-            if st.button(f"🗑️ Delete Recipe", key=f"delete_{recipe['id']}_{idx}"):
-                if self.delete_recipe(recipe['id']):
-                    st.success("Recipe deleted!")
+            # Delete button with confirmation
+            if st.session_state.confirm_delete_id == recipe['id']:
+                st.warning("Are you sure?")
+                if st.button("Yes, delete", key=f"confirm_full_del_{recipe['id']}_{idx}"):
+                    if self.delete_recipe(recipe['id']):
+                        st.session_state.confirm_delete_id = None
+                        st.rerun()
+                if st.button("Cancel", key=f"cancel_full_del_{recipe['id']}_{idx}"):
+                    st.session_state.confirm_delete_id = None
+                    st.rerun()
+            else:
+                if st.button(f"🗑️ Delete Recipe", key=f"delete_{recipe['id']}_{idx}"):
+                    st.session_state.confirm_delete_id = recipe['id']
                     st.rerun()
         
         with col2:
@@ -596,38 +619,18 @@ class SavedRecipesManager:
                 with st.spinner("Creating recipe card..."):
                     recipe_card = generate_recipe_card(recipe.get('recipe_content', ''))
                     recipe_html = create_recipe_card_html(recipe_card)
-                    
-                    # Base64-encode HTML to prevent XSS from AI-generated content
-                    encoded_html = base64.b64encode(recipe_html.encode('utf-8')).decode('ascii')
+                    st.session_state[f"saved_recipe_card_{recipe['id']}"] = recipe_html
 
-                    st.components.v1.html(
-                        f"""
-                        <button onclick="openRecipeSaved{idx}()" style="
-                            display: inline-block;
-                            padding: 10px 20px;
-                            background-color: #2c5530;
-                            color: white;
-                            border: none;
-                            border-radius: 5px;
-                            font-weight: bold;
-                            cursor: pointer;
-                            font-size: 14px;
-                        ">
-                            🖨️ Open in New Window
-                        </button>
-
-                        <script>
-                        function openRecipeSaved{idx}() {{
-                            var encoded = "{encoded_html}";
-                            var recipeHTML = decodeURIComponent(escape(atob(encoded)));
-                            var newWindow = window.open('', '_blank', 'width=900,height=800');
-                            newWindow.document.write(recipeHTML);
-                            newWindow.document.close();
-                        }}
-                        </script>
-                        """,
-                        height=60
-                    )
+            # Show download button if card was generated
+            card_html = st.session_state.get(f"saved_recipe_card_{recipe['id']}")
+            if card_html:
+                st.download_button(
+                    label="🖨️ Download Recipe Card (Open in Browser to Print)",
+                    data=card_html,
+                    file_name=f"{recipe.get('recipe_name', 'recipe')}_card.html",
+                    mime="text/html",
+                    key=f"download_card_{recipe['id']}_{idx}"
+                )
         
         with col3:
             # Shopping list button
