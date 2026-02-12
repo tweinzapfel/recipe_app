@@ -82,6 +82,31 @@ class SavedRecipesManager:
             st.error(f"Error deleting recipe: {e}")
             return False
     
+    def update_recipe(self, recipe_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Update fields on a saved recipe.
+
+        Args:
+            recipe_id: The recipe ID
+            updates: Dictionary of column->value pairs to update
+
+        Returns:
+            bool: True if update succeeded
+        """
+        if not self.supabase_client:
+            st.error("Database connection not available")
+            return False
+        try:
+            self.supabase_client.table("saved_recipes").update(updates).eq("id", recipe_id).execute()
+            return True
+        except Exception as e:
+            st.error(f"Error updating recipe: {e}")
+            return False
+
+    def toggle_favorite(self, recipe_id: str, current_value: bool) -> bool:
+        """Toggle the is_favorite flag on a saved recipe."""
+        return self.update_recipe(recipe_id, {"is_favorite": not current_value})
+
     def get_user_recipes(self, user_id: str) -> Optional[List[Dict]]:
         """
         Get all recipes for a specific user
@@ -183,9 +208,13 @@ class SavedRecipesManager:
         
         # Cooking method filter
         if st.session_state.recipe_filters['selected_cooking_methods']:
-            filtered = [r for r in filtered if 
+            filtered = [r for r in filtered if
                        r.get('cooking_method') in st.session_state.recipe_filters['selected_cooking_methods']]
-        
+
+        # Favorites-only filter
+        if st.session_state.recipe_filters.get('favorites_only', False):
+            filtered = [r for r in filtered if r.get('is_favorite')]
+
         return filtered
     
     def sort_recipes(self, recipes: List[Dict]) -> List[Dict]:
@@ -215,7 +244,11 @@ class SavedRecipesManager:
         elif sort_option == 'Complexity':
             complexity_order = {'Easy': 1, 'Medium': 2, 'Hard': 3, 'Show-stopping (Impressive)': 4}
             return sorted(recipes, key=lambda x: (complexity_order.get(x.get('complexity', ''), 5), x.get('recipe_name', '')))
-        
+        elif sort_option == 'Rating (Highest First)':
+            return sorted(recipes, key=lambda x: x.get('rating') or 0, reverse=True)
+        elif sort_option == 'Favorites First':
+            return sorted(recipes, key=lambda x: (0 if x.get('is_favorite') else 1, x.get('recipe_name', '')))
+
         return recipes
     
     def render_filter_sidebar(self, unique_values: Dict[str, List]):
@@ -238,11 +271,18 @@ class SavedRecipesManager:
             # Sort dropdown
             st.session_state.recipe_filters['sort_by'] = st.selectbox(
                 "Sort by",
-                ['Date (Newest First)', 'Date (Oldest First)', 
-                 'Name (A-Z)', 'Name (Z-A)', 'Cuisine', 
-                 'Meal Type', 'Complexity']
+                ['Date (Newest First)', 'Date (Oldest First)',
+                 'Name (A-Z)', 'Name (Z-A)', 'Cuisine',
+                 'Meal Type', 'Complexity',
+                 'Rating (Highest First)', 'Favorites First']
             )
-            
+
+            # Favorites-only toggle
+            st.session_state.recipe_filters['favorites_only'] = st.checkbox(
+                "Show favorites only",
+                value=st.session_state.recipe_filters.get('favorites_only', False)
+            )
+
             st.markdown("---")
             
             # Filter sections
@@ -454,11 +494,20 @@ class SavedRecipesManager:
         for idx, recipe in enumerate(recipes):
             with st.container():
                 # Summary row with columns
-                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+                col_fav, col1, col2, col3, col4 = st.columns([0.4, 3, 2, 1, 1])
                 recipe_name = recipe.get('recipe_name', 'Untitled Recipe')
+                is_fav = recipe.get('is_favorite', False)
+
+                with col_fav:
+                    fav_label = "♥" if is_fav else "♡"
+                    if st.button(fav_label, key=f"fav_{recipe['id']}", help="Toggle favorite"):
+                        self.toggle_favorite(recipe['id'], is_fav)
+                        st.rerun()
 
                 with col1:
-                    st.markdown(f"**📖 {recipe_name}**")
+                    rating = recipe.get('rating')
+                    stars = f" {'⭐' * rating}" if rating else ""
+                    st.markdown(f"**📖 {recipe_name}**{stars}")
 
                 with col2:
                     tags = []
@@ -529,8 +578,21 @@ class SavedRecipesManager:
             }
             meal_icon = meal_colors.get(recipe.get('meal_type', ''), '🍽️')
             
-            st.markdown(f"### {meal_icon} {recipe.get('recipe_name', 'Untitled Recipe')}")
-            
+            # Title row with favorite toggle
+            title_col, fav_col = st.columns([5, 1])
+            with title_col:
+                st.markdown(f"### {meal_icon} {recipe.get('recipe_name', 'Untitled Recipe')}")
+            with fav_col:
+                is_fav = recipe.get('is_favorite', False)
+                if st.button("♥" if is_fav else "♡", key=f"fav_card_{recipe['id']}_{idx}", help="Toggle favorite"):
+                    self.toggle_favorite(recipe['id'], is_fav)
+                    st.rerun()
+
+            # Rating display
+            rating = recipe.get('rating')
+            if rating:
+                st.caption("⭐" * rating)
+
             # Metadata badges
             metadata_parts = []
             if recipe.get('cuisine'):
@@ -639,3 +701,50 @@ class SavedRecipesManager:
                     shopping_list = generate_shopping_list(recipe.get('recipe_content', ''))
                     st.markdown("### 🛒 Shopping List")
                     st.write(shopping_list)
+
+        st.markdown("---")
+
+        # --- Rating & Notes ---
+        rate_col, fav_col = st.columns([3, 1])
+
+        with rate_col:
+            current_rating = recipe.get('rating') or 0
+            new_rating = st.radio(
+                "Rate this recipe",
+                options=[0, 1, 2, 3, 4, 5],
+                index=current_rating,
+                format_func=lambda x: "No rating" if x == 0 else "⭐" * x,
+                horizontal=True,
+                key=f"rating_{recipe['id']}_{idx}"
+            )
+
+        with fav_col:
+            is_fav = recipe.get('is_favorite', False)
+            fav_label = "♥ Favorited" if is_fav else "♡ Favorite"
+            if st.button(fav_label, key=f"fav_full_{recipe['id']}_{idx}", use_container_width=True):
+                self.toggle_favorite(recipe['id'], is_fav)
+                st.rerun()
+
+        current_notes = recipe.get('user_notes') or ""
+        new_notes = st.text_area(
+            "Your notes",
+            value=current_notes,
+            placeholder="e.g., 'Kids loved it!', 'Use less salt next time'",
+            key=f"notes_{recipe['id']}_{idx}"
+        )
+
+        # Save rating & notes if changed
+        changes = {}
+        if new_rating != current_rating:
+            changes['rating'] = new_rating if new_rating > 0 else None
+        if new_notes != current_notes:
+            changes['user_notes'] = new_notes if new_notes else None
+        if changes:
+            if st.button("💾 Save Rating & Notes", key=f"save_meta_{recipe['id']}_{idx}"):
+                if self.update_recipe(recipe['id'], changes):
+                    st.success("Saved!")
+                    st.rerun()
+
+        # --- Copy recipe ---
+        with st.expander("📋 Copy Recipe Text"):
+            st.code(recipe.get('recipe_content', ''), language=None)

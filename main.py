@@ -4,9 +4,6 @@ A comprehensive recipe generation app with multiple modes and features
 """
 
 import streamlit as st
-from datetime import datetime
-from PIL import Image
-import io
 
 # Import custom modules
 from auth import AuthManager
@@ -42,13 +39,30 @@ def initialize_preferences():
         "pref_spice_level": "Medium",   # Low/Medium/Hot
         "pref_budget": "Medium",        # Low/Medium/High
         "pref_include_leftovers": False,
-        "pref_allergies": []
+        "pref_allergies": [],
+        "dark_mode": False
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 initialize_preferences()
+
+# Dark mode CSS
+if st.session_state.get('dark_mode', False):
+    st.markdown("""
+    <style>
+        :root { color-scheme: dark; }
+        .stApp, [data-testid="stAppViewContainer"] { background-color: #0e1117; color: #fafafa; }
+        [data-testid="stSidebar"] > div { background-color: #262730; }
+        [data-testid="stHeader"] { background-color: rgba(14, 17, 23, 0.8); }
+        .stTextInput > div > div > input,
+        .stTextArea > div > div > textarea { background-color: #262730; color: #fafafa; }
+        .stSelectbox > div > div, .stMultiSelect > div > div { background-color: #262730; }
+        .stTabs [data-baseweb="tab-list"] { background-color: transparent; }
+        .stExpander { border-color: #555; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Navigation state
 if "page" not in st.session_state:
@@ -163,7 +177,14 @@ with st.sidebar:
             key="pref_include_leftovers"
         )
 
-    # Optional: Quick “reset preferences”
+    st.markdown("---")
+    st.toggle(
+        "🌙 Dark mode",
+        value=st.session_state.dark_mode,
+        key="dark_mode"
+    )
+
+    # Optional: Quick "reset preferences"
     if st.button("Reset preferences", use_container_width=True):
         for k in [
             "pref_servings",
@@ -172,7 +193,8 @@ with st.sidebar:
             "pref_spice_level",
             "pref_budget",
             "pref_include_leftovers",
-            "pref_allergies"
+            "pref_allergies",
+            "dark_mode"
         ]:
             if k in st.session_state:
                 del st.session_state[k]
@@ -209,6 +231,38 @@ else:
         st.info(f"🎉 **{holiday_name}!** Perfect time for {holiday_desc}. Check out our special occasion recipes below!")
     elif holiday_name:
         st.success(f"🍂 **{holiday_name}** - Great time for {holiday_desc}")
+
+    # Surprise Me button
+    if st.button("🎲 Surprise Me!", use_container_width=True,
+                 help="Generate a random recipe based on your preferences"):
+        surprise_prompt = recipe_gen.generate_surprise_prompt()
+        with st.spinner("Cooking up something special..."):
+            content = recipe_gen.generate_recipe(surprise_prompt)
+            if content:
+                st.session_state.surprise_recipe_content = content
+                st.session_state.surprise_shopping_list = ""
+                st.session_state.surprise_recipe_card = ""
+
+    if st.session_state.get('surprise_recipe_content'):
+        st.markdown("### 🎲 Surprise Recipe!")
+        st.write(st.session_state.surprise_recipe_content)
+        st.markdown("---")
+        if st.session_state.user:
+            saved_recipes_manager.render_save_button(
+                st.session_state.surprise_recipe_content,
+                "surprise",
+                {"cuisine": None, "meal_type": "Dinner", "complexity": None,
+                 "occasion": None, "cooking_method": None,
+                 "dietary_tags": recipe_gen._get_dietary_tags()},
+                "save_surprise_recipe"
+            )
+        recipe_gen.render_recipe_output(
+            st.session_state.surprise_recipe_content,
+            "surprise",
+            "surprise_shopping_list_btn",
+            "surprise_recipe_card_btn"
+        )
+        st.markdown("---")
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "🍽️ Recipe by Cuisine",

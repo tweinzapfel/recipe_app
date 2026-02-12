@@ -6,7 +6,7 @@ Handles meal planning, weekly calendar view, and combined shopping lists
 import streamlit as st
 from datetime import date, timedelta
 from typing import Optional, Dict, Any, List
-from utils import generate_weekly_shopping_list
+from utils import generate_weekly_shopping_list, generate_ics_calendar
 
 
 class MealPlanner:
@@ -108,18 +108,21 @@ class MealPlanner:
                 return None
 
     def _get_user_saved_recipes(self) -> Optional[List[Dict]]:
-        """Fetch id + recipe_name for the current user's saved recipes (for the picker dropdown)."""
+        """Fetch saved recipes for the picker dropdown, favorites first."""
         if not self.supabase_client:
             return None
         try:
             response = (
                 self.supabase_client.table("saved_recipes")
-                .select("id, recipe_name")
+                .select("id, recipe_name, is_favorite")
                 .eq("user_id", st.session_state.user)
                 .order("recipe_name")
                 .execute()
             )
-            return response.data
+            recipes = response.data or []
+            # Sort favorites to the top
+            recipes.sort(key=lambda r: (0 if r.get('is_favorite') else 1, r.get('recipe_name', '')))
+            return recipes
         except Exception as e:
             st.error(f"Error loading saved recipes: {e}")
             return None
@@ -177,6 +180,11 @@ class MealPlanner:
 
         # Weekly shopping list
         self._render_weekly_shopping_list(meals or [])
+
+        st.markdown("---")
+
+        # Calendar export
+        self._render_calendar_export(meals or [])
 
     # ------------------------------------------------------------------
     # Rendering: week navigation
@@ -289,10 +297,11 @@ class MealPlanner:
                 with col1:
                     if saved_recipes:
                         recipe_options = {r["id"]: r["recipe_name"] for r in saved_recipes}
+                        recipe_favs = {r["id"]: r.get("is_favorite", False) for r in saved_recipes}
                         selected_recipe_id = st.selectbox(
                             "Select a recipe",
                             options=list(recipe_options.keys()),
-                            format_func=lambda x: recipe_options[x],
+                            format_func=lambda x: ("⭐ " if recipe_favs.get(x) else "") + recipe_options[x],
                         )
                         recipe_name = recipe_options.get(selected_recipe_id, "")
                     else:
@@ -385,3 +394,28 @@ class MealPlanner:
 
         if st.session_state.meal_planner_shopping_list:
             st.markdown(st.session_state.meal_planner_shopping_list)
+
+    # ------------------------------------------------------------------
+    # Rendering: calendar export
+    # ------------------------------------------------------------------
+    def _render_calendar_export(self, meals: List[Dict]):
+        st.subheader("📤 Export to Calendar")
+
+        if not meals:
+            st.info("Add some meals to your plan to export them to your calendar.")
+            return
+
+        st.write(f"Export **{len(meals)}** planned meal(s) as an .ics file you can import into Google Calendar, Outlook, or Apple Calendar.")
+
+        week_start = st.session_state.meal_planner_week_start
+        file_name = f"meal_plan_{week_start.isoformat()}.ics"
+
+        ics_data = generate_ics_calendar(meals)
+        st.download_button(
+            label="📅 Download Calendar (.ics)",
+            data=ics_data,
+            file_name=file_name,
+            mime="text/calendar",
+            key="export_ics_btn",
+            use_container_width=True
+        )

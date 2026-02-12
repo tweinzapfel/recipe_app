@@ -36,7 +36,10 @@ def initialize_session_state():
         'show_saved_recipes': False,
         'occasion_recipe_content': "",
         'occasion_shopping_list': "",
-        'occasion_recipe_card': ""
+        'occasion_recipe_card': "",
+        'surprise_recipe_content': "",
+        'surprise_shopping_list': "",
+        'surprise_recipe_card': ""
     }
     
     for key, default_value in default_states.items():
@@ -547,3 +550,156 @@ def create_recipe_card_html(recipe_card_content: str) -> str:
     </html>
     """
     return full_html
+
+
+def generate_nutritional_info(recipe_text: str) -> str:
+    """
+    Generate estimated nutritional information for a recipe.
+
+    Args:
+        recipe_text: The recipe content
+
+    Returns:
+        str: Formatted nutritional estimates per serving
+    """
+    client = get_openai_client()
+    try:
+        prompt = f"""Based on this recipe, provide estimated nutritional information per serving:
+
+{recipe_text}
+
+Format as:
+**Estimated Nutrition Per Serving:**
+- Calories: ~XXX kcal
+- Protein: ~XXg
+- Carbohydrates: ~XXg
+- Fat: ~XXg
+- Fiber: ~XXg
+- Sodium: ~XXXmg
+
+Note: These are rough estimates based on typical ingredient quantities."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a nutritionist who provides estimated nutritional information for recipes. Give reasonable estimates based on typical serving sizes and ingredient quantities."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error generating nutritional info: {e}"
+
+
+def generate_substitutions(recipe_text: str, ingredient: str) -> str:
+    """
+    Generate ingredient substitution suggestions for a recipe.
+
+    Args:
+        recipe_text: The recipe content
+        ingredient: The ingredient to find substitutes for
+
+    Returns:
+        str: Formatted substitution suggestions
+    """
+    client = get_openai_client()
+    try:
+        prompt = f"""For this recipe:
+
+{recipe_text}
+
+What are good substitutions for "{ingredient}"? Consider:
+1. Common pantry alternatives
+2. Dietary alternatives (vegan, gluten-free, etc.)
+3. How each substitute affects the dish
+4. Quantity adjustments needed
+
+List 3-5 practical options."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful chef who suggests ingredient substitutions. Be practical and consider flavor, texture, and cooking properties."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error generating substitutions: {e}"
+
+
+def scale_recipe(recipe_text: str, target_servings: int) -> str:
+    """
+    Rescale a recipe to a different number of servings.
+
+    Args:
+        recipe_text: The original recipe content
+        target_servings: The desired number of servings
+
+    Returns:
+        str: The rescaled recipe with adjusted quantities
+    """
+    client = get_openai_client()
+    try:
+        prompt = f"""Please rescale this recipe to serve exactly {target_servings} people.
+
+Original recipe:
+{recipe_text}
+
+Adjust ALL ingredient quantities proportionally. Keep the instructions the same but update any references to quantities. Format the complete rescaled recipe with adjusted ingredients and instructions."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful chef who rescales recipes accurately. Always show the complete rescaled recipe with adjusted quantities."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error scaling recipe: {e}"
+
+
+def generate_ics_calendar(meals: list) -> str:
+    """
+    Generate an .ics calendar file from meal plan entries.
+
+    Args:
+        meals: List of meal plan dictionaries with recipe_name, planned_date, meal_slot, notes
+
+    Returns:
+        str: ICS calendar file content
+    """
+    slot_times = {
+        "Breakfast": ("0800", "0900"),
+        "Lunch":     ("1200", "1300"),
+        "Dinner":    ("1800", "1930"),
+        "Snack":     ("1500", "1530"),
+    }
+
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Dinner Recipe Maker//Meal Planner//EN",
+    ]
+
+    for meal in meals:
+        name = meal.get("recipe_name", "Meal")
+        planned_date = meal.get("planned_date", "")
+        slot = meal.get("meal_slot", "Dinner")
+        notes = meal.get("notes", "") or ""
+
+        start_time, end_time = slot_times.get(slot, ("1800", "1930"))
+        date_clean = planned_date.replace("-", "")
+
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"DTSTART:{date_clean}T{start_time}00",
+            f"DTEND:{date_clean}T{end_time}00",
+            f"SUMMARY:{slot}: {name}",
+            f"DESCRIPTION:{notes.replace(chr(10), ' ')}",
+            "END:VEVENT",
+        ])
+
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines)

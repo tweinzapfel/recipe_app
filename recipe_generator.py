@@ -5,6 +5,7 @@ Handles all recipe generation functionality for different modes
 
 import streamlit as st
 import base64
+import random
 from PIL import Image
 import io
 from typing import Dict, Any, List
@@ -13,7 +14,10 @@ from utils import (
     generate_shopping_list,
     generate_recipe_card,
     create_recipe_card_html,
-    extract_recipe_name
+    extract_recipe_name,
+    generate_nutritional_info,
+    generate_substitutions,
+    scale_recipe
 )
 
 class RecipeGenerator:
@@ -94,6 +98,26 @@ class RecipeGenerator:
         """Return the current sidebar dietary tags for saving to the database."""
         return list(st.session_state.get('pref_dietary', []))
 
+    def generate_surprise_prompt(self) -> str:
+        """Build a randomized recipe prompt using sidebar preferences."""
+        cuisines = [
+            "American", "Chinese", "French", "Greek", "Indian", "Italian",
+            "Japanese", "Korean", "Mediterranean", "Mexican", "Thai",
+            "Vietnamese", "Middle Eastern", "Southern/Soul Food"
+        ]
+        styles = [
+            "comfort food", "light and healthy", "quick weeknight",
+            "impressive date night", "family-friendly", "adventurous and bold",
+            "rustic and hearty", "elegant and refined"
+        ]
+        cuisine = random.choice(cuisines)
+        style = random.choice(styles)
+
+        prompt = f"Surprise me with an amazing {cuisine} dinner recipe! Make it {style}."
+        prompt = self._append_preferences_to_prompt(prompt)
+        prompt += " Include ingredients and step-by-step instructions."
+        return prompt
+
     def render_recipe_output(self, recipe_content: str, recipe_type: str,
                            shopping_list_key: str, recipe_card_key: str,
                            available_ingredients: str = ""):
@@ -130,6 +154,68 @@ class RecipeGenerator:
                 mime="text/html",
                 key=f"{recipe_type}_download_card"
             )
+
+        # --- Recipe Tools ---
+        with st.expander("🔧 Recipe Tools", expanded=False):
+            tool_col1, tool_col2 = st.columns(2)
+
+            with tool_col1:
+                # Nutrition info
+                if st.button("📊 Get Nutrition Info", key=f"{recipe_type}_nutrition_btn"):
+                    with st.spinner("Estimating nutrition..."):
+                        info = generate_nutritional_info(recipe_content)
+                        st.session_state[f"{recipe_type}_nutrition"] = info
+
+                # Scale recipe
+                target = st.number_input(
+                    "Scale to servings:",
+                    min_value=1, max_value=20,
+                    value=st.session_state.get('pref_servings', 4),
+                    key=f"{recipe_type}_scale_input"
+                )
+                if st.button("⚖️ Scale Recipe", key=f"{recipe_type}_scale_btn"):
+                    with st.spinner("Scaling recipe..."):
+                        scaled = scale_recipe(recipe_content, target)
+                        st.session_state[f"{recipe_type}_scaled"] = scaled
+
+            with tool_col2:
+                # Ingredient substitutions
+                sub_ingredient = st.text_input(
+                    "Ingredient to substitute:",
+                    placeholder="e.g., butter, flour, eggs",
+                    key=f"{recipe_type}_sub_input"
+                )
+                if st.button("🔄 Find Substitutes", key=f"{recipe_type}_sub_btn"):
+                    if sub_ingredient.strip():
+                        with st.spinner("Finding substitutes..."):
+                            subs = generate_substitutions(recipe_content, sub_ingredient)
+                            st.session_state[f"{recipe_type}_substitutions"] = subs
+                    else:
+                        st.warning("Enter an ingredient to find substitutes for.")
+
+            # Display nutrition info
+            if st.session_state.get(f"{recipe_type}_nutrition"):
+                st.markdown("---")
+                st.markdown("### 📊 Nutritional Estimates")
+                st.write(st.session_state[f"{recipe_type}_nutrition"])
+
+            # Display scaled recipe
+            if st.session_state.get(f"{recipe_type}_scaled"):
+                st.markdown("---")
+                st.markdown("### ⚖️ Scaled Recipe")
+                st.write(st.session_state[f"{recipe_type}_scaled"])
+
+            # Display substitutions
+            if st.session_state.get(f"{recipe_type}_substitutions"):
+                st.markdown("---")
+                st.markdown("### 🔄 Ingredient Substitutions")
+                st.write(st.session_state[f"{recipe_type}_substitutions"])
+
+        # --- Copy to clipboard ---
+        if not st.session_state.get('user'):
+            st.info("Not logged in? Copy your recipe below so you don't lose it!")
+        with st.expander("📋 Copy Recipe Text"):
+            st.code(recipe_content, language=None)
 
     def render_cuisine_tab(self, saved_recipes_manager):
         """Render the cuisine-based recipe generation tab"""
