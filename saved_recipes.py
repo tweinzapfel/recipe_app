@@ -7,7 +7,10 @@ import re
 import streamlit as st
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
-from utils import generate_recipe_card, create_recipe_card_html, extract_recipe_name, generate_shopping_list
+from utils import (
+    generate_recipe_card, create_recipe_card_html, extract_recipe_name,
+    generate_shopping_list, generate_recipe_image, upload_image_to_supabase,
+)
 
 class SavedRecipesManager:
     """Manages saved recipes functionality"""
@@ -630,6 +633,11 @@ class SavedRecipesManager:
                 unsafe_allow_html=True,
             )
 
+            # Recipe image (if available)
+            image_url = recipe.get('image_url')
+            if image_url:
+                st.image(image_url, use_container_width=True)
+
             # Title row
             title_col, fav_col = st.columns([5, 1])
             with title_col:
@@ -736,11 +744,51 @@ class SavedRecipesManager:
                 st.caption(f"Occasion: {recipe['occasion']}")
         
         st.markdown("---")
-        
+
+        # --- Recipe Image ---
+        image_url = recipe.get('image_url')
+        if image_url:
+            st.image(image_url, caption=recipe.get('recipe_name', ''), width=512)
+            if st.button("🔄 Regenerate Image", key=f"regen_img_{recipe['id']}_{idx}"):
+                with st.spinner("Generating new image with DALL-E 3..."):
+                    temp_url = generate_recipe_image(
+                        recipe.get('recipe_name', 'dish'),
+                        recipe.get('recipe_content', ''),
+                    )
+                    if temp_url:
+                        permanent_url = upload_image_to_supabase(
+                            self.supabase_client, temp_url, str(recipe['id'])
+                        )
+                        if permanent_url:
+                            self.update_recipe(recipe['id'], {'image_url': permanent_url})
+                            st.success("Image updated!")
+                            st.rerun()
+        else:
+            if st.button("🎨 Generate Image", key=f"gen_img_{recipe['id']}_{idx}"):
+                with st.spinner("Generating image with DALL-E 3... (this may take ~15 seconds)"):
+                    temp_url = generate_recipe_image(
+                        recipe.get('recipe_name', 'dish'),
+                        recipe.get('recipe_content', ''),
+                    )
+                    if temp_url:
+                        permanent_url = upload_image_to_supabase(
+                            self.supabase_client, temp_url, str(recipe['id'])
+                        )
+                        if permanent_url:
+                            self.update_recipe(recipe['id'], {'image_url': permanent_url})
+                            st.success("Image generated and saved!")
+                            st.rerun()
+                        else:
+                            st.error("Image was generated but could not be saved to storage.")
+                    else:
+                        st.error("Failed to generate image. Please try again.")
+
+        st.markdown("---")
+
         # Recipe content
         st.markdown("### Instructions")
         st.write(recipe.get('recipe_content', 'No content available'))
-        
+
         st.markdown("---")
         
         # Action buttons - 3 columns

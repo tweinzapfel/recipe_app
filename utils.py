@@ -7,6 +7,7 @@ import streamlit as st
 from datetime import date
 from openai import OpenAI
 import re
+import requests
 from typing import Tuple, Optional
 
 @st.cache_resource
@@ -726,3 +727,70 @@ def generate_ics_calendar(meals: list) -> str:
 
     lines.append("END:VCALENDAR")
     return "\r\n".join(lines)
+
+
+def generate_recipe_image(recipe_name: str, recipe_content: str = "") -> Optional[str]:
+    """
+    Generate a photo-realistic image of a dish using DALL-E 3.
+
+    Args:
+        recipe_name: The name of the recipe
+        recipe_content: Optional recipe text for additional context
+
+    Returns:
+        str: Temporary DALL-E image URL, or None on failure
+    """
+    client = get_openai_client()
+
+    prompt = (
+        f"A professional, appetizing food photograph of {recipe_name}. "
+        "Beautifully plated on a rustic table setting with natural lighting. "
+        "Shot from a 45-degree angle, shallow depth of field, "
+        "food photography style, no text or watermarks."
+    )
+
+    try:
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        return response.data[0].url
+    except Exception as e:
+        st.error(f"Error generating image: {e}")
+        return None
+
+
+def upload_image_to_supabase(supabase_client, image_url: str, recipe_id: str) -> Optional[str]:
+    """
+    Download an image from a URL and upload it to Supabase Storage.
+
+    Args:
+        supabase_client: The Supabase client instance
+        image_url: The temporary URL to download from (e.g., DALL-E output)
+        recipe_id: The recipe ID, used to build a unique file path
+
+    Returns:
+        str: The permanent public URL from Supabase Storage, or None on failure
+    """
+    try:
+        response = requests.get(image_url, timeout=30)
+        response.raise_for_status()
+        image_bytes = response.content
+
+        file_path = f"{recipe_id}.png"
+
+        supabase_client.storage.from_("recipe-images").upload(
+            path=file_path,
+            file=image_bytes,
+            file_options={"content-type": "image/png", "upsert": "true"},
+        )
+
+        public_url = supabase_client.storage.from_("recipe-images").get_public_url(file_path)
+        return public_url
+
+    except Exception as e:
+        st.error(f"Error uploading image to storage: {e}")
+        return None
