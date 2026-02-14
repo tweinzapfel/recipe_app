@@ -679,24 +679,39 @@ class SavedRecipesManager:
         """
         # Editable recipe title
         current_name = recipe.get('recipe_name', 'Untitled Recipe')
-        name_col, save_col = st.columns([4, 1])
-        with name_col:
+        editing_key = f"editing_title_{recipe['id']}"
+
+        if st.session_state.get(editing_key, False):
+            # Editing mode: show text input with Save / Cancel
             new_name = st.text_input(
                 "Recipe title",
                 value=current_name,
                 key=f"title_{recipe['id']}_{idx}",
-                label_visibility="collapsed",
                 placeholder="Recipe title",
             )
-        with save_col:
-            if new_name != current_name:
-                if st.button("✏️ Rename", key=f"rename_{recipe['id']}_{idx}"):
+            btn_save, btn_cancel, _ = st.columns([1, 1, 4])
+            with btn_save:
+                if st.button("💾 Save", key=f"save_title_{recipe['id']}_{idx}"):
                     if new_name.strip():
                         if self.update_recipe(recipe['id'], {'recipe_name': new_name.strip()}):
+                            st.session_state[editing_key] = False
                             st.success("Title updated!")
                             st.rerun()
                     else:
                         st.warning("Title cannot be empty.")
+            with btn_cancel:
+                if st.button("Cancel", key=f"cancel_title_{recipe['id']}_{idx}"):
+                    st.session_state[editing_key] = False
+                    st.rerun()
+        else:
+            # Display mode: show title with edit button
+            title_col, edit_col = st.columns([5, 1])
+            with title_col:
+                st.markdown(f"### {current_name}")
+            with edit_col:
+                if st.button("✏️ Rename", key=f"edit_title_{recipe['id']}_{idx}"):
+                    st.session_state[editing_key] = True
+                    st.rerun()
 
         # Full metadata display
         st.markdown("**Recipe Details:**")
