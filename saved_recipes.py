@@ -3,6 +3,7 @@ Saved Recipes Manager Module
 Handles saving, loading, and displaying saved recipes with advanced filtering and sorting
 """
 
+import re
 import streamlit as st
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
@@ -484,137 +485,187 @@ class SavedRecipesManager:
         else:
             self._render_expanded_view(filtered_recipes)
     
+    @staticmethod
+    def _clean_display_name(name: str, max_len: int = 55) -> str:
+        """Clean up a recipe name for display, fixing legacy bad extractions."""
+        if not name:
+            return "Untitled Recipe"
+
+        # Strip markdown formatting
+        clean = name.replace('#', '').replace('*', '').strip().rstrip(':').strip()
+
+        # If name looks like conversational AI text, try to extract the real name
+        ai_patterns = [
+            r"(?:how about|let'?s make|let'?s try|try making|here'?s|here is)\s+(?:a\s+|some\s+)?(?:delicious\s+|classic\s+|homemade\s+|amazing\s+)?(.+?)(?:\?|!|\.|,|this\s)",
+            r"(?:recipe for|make|making)\s+(?:a\s+|some\s+)?(?:delicious\s+|classic\s+)?(.+?)(?:\?|!|\.|,|this\s)",
+        ]
+        lower = clean.lower()
+        if any(p in lower for p in ['sure!', 'how about', 'let\'s', 'here\'s', 'try making', 'here is']):
+            for pattern in ai_patterns:
+                match = re.search(pattern, clean, re.IGNORECASE)
+                if match:
+                    extracted = match.group(1).strip().rstrip('.,!? ')
+                    if len(extracted) >= 3:
+                        clean = extracted
+                        break
+
+        # Skip generic headers
+        if clean.lower() in ('introduction', 'overview', 'recipe', 'description'):
+            return "Untitled Recipe"
+
+        # Truncate with ellipsis if needed
+        if len(clean) > max_len:
+            clean = clean[:max_len].rsplit(' ', 1)[0] + "..."
+
+        return clean if clean else "Untitled Recipe"
+
     def _render_compact_view(self, recipes: List[Dict]):
         """
-        Render recipes in a compact table-like view
-        
+        Render recipes in a compact accordion view — one row per recipe.
+
         Args:
             recipes: List of filtered and sorted recipes
         """
         for idx, recipe in enumerate(recipes):
-            with st.container():
-                # Summary row with columns
-                col_fav, col1, col2, col3, col4 = st.columns([0.4, 3, 2, 1, 1])
-                recipe_name = recipe.get('recipe_name', 'Untitled Recipe')
-                is_fav = recipe.get('is_favorite', False)
+            recipe_name = recipe.get('recipe_name', 'Untitled Recipe')
+            display_name = self._clean_display_name(recipe_name)
+            is_fav = recipe.get('is_favorite', False)
 
-                with col_fav:
-                    fav_label = "♥" if is_fav else "♡"
-                    if st.button(fav_label, key=f"fav_{recipe['id']}", help="Toggle favorite"):
-                        self.toggle_favorite(recipe['id'], is_fav)
-                        st.rerun()
+            # Build a rich expander label with key info at a glance
+            fav_marker = "♥ " if is_fav else ""
+            rating = recipe.get('rating')
+            stars = f"  {'⭐' * rating}" if rating else ""
 
-                with col1:
-                    rating = recipe.get('rating')
-                    stars = f" {'⭐' * rating}" if rating else ""
-                    st.markdown(f"**📖 {recipe_name}**{stars}")
+            tags = []
+            if recipe.get('cuisine'):
+                tags.append(recipe['cuisine'])
+            if recipe.get('meal_type'):
+                tags.append(recipe['meal_type'])
+            tag_str = f"  —  {' · '.join(tags)}" if tags else ""
 
-                with col2:
-                    tags = []
-                    if recipe.get('cuisine'):
-                        tags.append(recipe['cuisine'])
-                    if recipe.get('meal_type'):
-                        tags.append(recipe['meal_type'])
-                    if tags:
-                        st.caption(" | ".join(tags))
+            date_str = recipe.get('created_at', '')[:10] if recipe.get('created_at') else ''
+            date_part = f"  ·  📅 {date_str}" if date_str else ""
 
-                with col3:
-                    date_str = recipe.get('created_at', '')[:10] if recipe.get('created_at') else 'N/A'
-                    st.caption(f"📅 {date_str}")
+            label = f"{fav_marker}{display_name}{stars}{tag_str}{date_part}"
 
-                with col4:
-                    if st.button("🗑️", key=f"quick_delete_{recipe['id']}", help="Delete recipe"):
-                        st.session_state.confirm_delete_id = recipe['id']
-                        st.rerun()
-
-                # Confirmation row if this recipe is pending delete
-                if st.session_state.confirm_delete_id == recipe['id']:
-                    st.warning(f"Delete **{recipe_name}**? This cannot be undone.")
-                    c1, c2, _ = st.columns([1, 1, 4])
-                    with c1:
-                        if st.button("Yes, delete", key=f"confirm_del_{recipe['id']}"):
-                            if self.delete_recipe(recipe['id']):
-                                st.session_state.confirm_delete_id = None
-                                st.rerun()
-                    with c2:
-                        if st.button("Cancel", key=f"cancel_del_{recipe['id']}"):
-                            st.session_state.confirm_delete_id = None
-                            st.rerun()
-
-                # Expander spans full width below the summary row
-                with st.expander("View Full Recipe", expanded=False):
-                    self._render_full_recipe_content(recipe, idx)
+            with st.expander(label, expanded=False):
+                self._render_full_recipe_content(recipe, idx)
     
+    @staticmethod
+    def _get_recipe_preview(content: str, max_lines: int = 3) -> str:
+        """Extract a short preview from recipe content, skipping headers/metadata."""
+        if not content:
+            return ""
+        skip_prefixes = ('#', '**', '---', 'servings', 'prep time', 'cook time', 'total time')
+        preview_lines = []
+        for line in content.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lower = stripped.lower()
+            if any(lower.startswith(p) for p in skip_prefixes):
+                continue
+            # Skip list items that look like ingredients
+            if stripped.startswith('-') or stripped.startswith('•'):
+                continue
+            preview_lines.append(stripped)
+            if len(preview_lines) >= max_lines:
+                break
+        preview = ' '.join(preview_lines)
+        if len(preview) > 180:
+            preview = preview[:180].rsplit(' ', 1)[0] + "..."
+        return preview
+
     def _render_expanded_view(self, recipes: List[Dict]):
         """
-        Render recipes in expanded card view
-        
+        Render recipes in an expanded card-grid view.
+
         Args:
             recipes: List of filtered and sorted recipes
         """
-        # Display recipes in a grid layout
+        # Inject card accent CSS once
+        meal_type_colors = {
+            'Dinner': '#6366f1',           # indigo
+            'Lunch': '#f59e0b',            # amber
+            'Breakfast/Brunch': '#f97316', # orange
+            'Appetizer': '#8b5cf6',        # violet
+            'Snack': '#10b981',            # emerald
+            'Dessert': '#ec4899',          # pink
+            'Side Dish': '#14b8a6',        # teal
+            'Main Course': '#6366f1',      # indigo
+        }
+
         cols_per_row = 2
         for i in range(0, len(recipes), cols_per_row):
             cols = st.columns(cols_per_row)
-            
             for j, col in enumerate(cols):
                 if i + j < len(recipes):
                     with col:
-                        self._render_recipe_card(recipes[i + j], i + j)
-    
-    def _render_recipe_card(self, recipe: Dict[str, Any], idx: int):
+                        self._render_recipe_card(recipes[i + j], i + j, meal_type_colors)
+
+    def _render_recipe_card(self, recipe: Dict[str, Any], idx: int, meal_type_colors: Dict[str, str]):
         """
-        Render a single recipe card
-        
+        Render a single recipe card with border, accent, and preview.
+
         Args:
             recipe: Recipe data dictionary
             idx: Index for unique keys
+            meal_type_colors: Mapping of meal type to accent color hex
         """
-        with st.container():
-            # Card header with colored background based on meal type
-            meal_colors = {
-                'Dinner': '🌆', 'Lunch': '☀️', 'Breakfast/Brunch': '🌅',
-                'Appetizer': '🥨', 'Snack': '🍿', 'Dessert': '🍰', 'Side Dish': '🥗'
-            }
-            meal_icon = meal_colors.get(recipe.get('meal_type', ''), '🍽️')
-            
-            # Title row with favorite toggle
+        meal_icons = {
+            'Dinner': '🌆', 'Lunch': '☀️', 'Breakfast/Brunch': '🌅',
+            'Appetizer': '🥨', 'Snack': '🍿', 'Dessert': '🍰',
+            'Side Dish': '🥗', 'Main Course': '🍽️',
+        }
+        meal_type = recipe.get('meal_type', '')
+        meal_icon = meal_icons.get(meal_type, '🍽️')
+        accent = meal_type_colors.get(meal_type, '#64748b')
+        display_name = self._clean_display_name(recipe.get('recipe_name', 'Untitled Recipe'))
+        is_fav = recipe.get('is_favorite', False)
+
+        with st.container(border=True):
+            # Colored accent bar via small HTML div
+            st.markdown(
+                f'<div style="height:4px;border-radius:2px;background:{accent};margin-bottom:0.5rem"></div>',
+                unsafe_allow_html=True,
+            )
+
+            # Title row
             title_col, fav_col = st.columns([5, 1])
             with title_col:
-                st.markdown(f"### {meal_icon} {recipe.get('recipe_name', 'Untitled Recipe')}")
+                st.markdown(f"#### {meal_icon} {display_name}")
             with fav_col:
-                is_fav = recipe.get('is_favorite', False)
                 if st.button("♥" if is_fav else "♡", key=f"fav_card_{recipe['id']}_{idx}", help="Toggle favorite"):
                     self.toggle_favorite(recipe['id'], is_fav)
                     st.rerun()
 
-            # Rating display
+            # Metadata line
+            meta_parts = []
+            if recipe.get('cuisine'):
+                meta_parts.append(f"**{recipe['cuisine']}**")
+            if recipe.get('complexity'):
+                meta_parts.append(f"*{recipe['complexity']}*")
             rating = recipe.get('rating')
             if rating:
-                st.caption("⭐" * rating)
+                meta_parts.append("⭐" * rating)
+            if meta_parts:
+                st.markdown("&nbsp;&nbsp;·&nbsp;&nbsp;".join(meta_parts), unsafe_allow_html=True)
 
-            # Metadata badges
-            metadata_parts = []
-            if recipe.get('cuisine'):
-                metadata_parts.append(f"**{recipe['cuisine']}**")
-            if recipe.get('complexity'):
-                metadata_parts.append(f"*{recipe['complexity']}*")
-            if recipe.get('occasion'):
-                metadata_parts.append(f"🎉 {recipe['occasion']}")
-            
-            if metadata_parts:
-                st.caption(" | ".join(metadata_parts))
-            
             # Dietary tags
             if recipe.get('dietary_tags') and len(recipe['dietary_tags']) > 0:
                 tag_string = " ".join([f"`{tag}`" for tag in recipe['dietary_tags']])
                 st.markdown(tag_string)
-            
+
+            # Brief recipe preview
+            preview = self._get_recipe_preview(recipe.get('recipe_content', ''))
+            if preview:
+                st.caption(preview)
+
             # Date
             date_str = recipe.get('created_at', '')[:10] if recipe.get('created_at') else 'N/A'
-            st.caption(f"Saved on: {date_str}")
-            
-            # Recipe content in expander
+            st.caption(f"📅 {date_str}")
+
+            # Full recipe in expander
             with st.expander("View Full Recipe", expanded=False):
                 self._render_full_recipe_content(recipe, idx)
     

@@ -109,19 +109,24 @@ def extract_recipe_name(recipe_content: str) -> str:
     """
     lines = recipe_content.split('\n')
 
+    # Common section/generic headers to skip
+    section_words = [
+        'ingredients', 'instructions', 'directions', 'steps',
+        'tips', 'notes', 'shopping', 'servings', 'introduction',
+        'overview', 'welcome', 'description', 'summary', 'method',
+        'recipe details', 'prep time', 'cook time', 'total time',
+    ]
+
+    def _is_section_header(name: str) -> bool:
+        lower = name.lower()
+        return any(lower.startswith(w) for w in section_words)
+
     # Pass 1: Look for markdown headers — most reliable title indicator
     for line in lines:
         stripped = line.strip()
         if stripped.startswith('#'):
-            name = stripped.lstrip('#').strip()
-            # Skip section headers like "## Ingredients"
-            section_words = [
-                'ingredients', 'instructions', 'directions', 'steps',
-                'tips', 'notes', 'shopping', 'servings'
-            ]
-            if name and len(name) >= 3 and not any(
-                name.lower().startswith(w) for w in section_words
-            ):
+            name = stripped.lstrip('#').strip().rstrip(':').strip()
+            if name and len(name) >= 3 and not _is_section_header(name):
                 return name[:80]
 
     # Pass 2: Look for standalone bold lines like **Recipe Name**
@@ -129,21 +134,33 @@ def extract_recipe_name(recipe_content: str) -> str:
         stripped = line.strip()
         match = re.match(r'^\*\*(.+?)\*\*$', stripped)
         if match:
-            name = match.group(1).strip()
-            section_words = [
-                'ingredients', 'instructions', 'directions', 'steps',
-                'tips', 'notes', 'servings', 'prep time', 'cook time',
-                'total time', 'shopping'
-            ]
-            if len(name) >= 3 and not any(
-                name.lower().startswith(w) for w in section_words
-            ):
+            name = match.group(1).strip().rstrip(':').strip()
+            if len(name) >= 3 and not _is_section_header(name):
                 return name[:80]
 
-    # Pass 3: First meaningful line that looks like a title
+    # Pass 3: Extract recipe name from conversational AI intro lines
+    # e.g. "Sure! How about making Kung Pao Chicken? This dish is..."
+    name_patterns = [
+        r"(?:how about|let'?s make|let'?s try|try making|presenting|here'?s|here is)\s+(?:a\s+|some\s+)?(?:delicious\s+|classic\s+|homemade\s+|amazing\s+|wonderful\s+)?(.+?)(?:\?|!|\.|,|this\s)",
+        r"(?:recipe for|make|making|cook|cooking|prepare|preparing)\s+(?:a\s+|some\s+)?(?:delicious\s+|classic\s+|homemade\s+)?(.+?)(?:\?|!|\.|,|this\s)",
+    ]
+    for line in lines[:5]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        for pattern in name_patterns:
+            match = re.search(pattern, stripped, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip().rstrip('.,!? ')
+                if 3 <= len(name) <= 80 and not _is_section_header(name):
+                    return name
+
+    # Pass 4: First meaningful line that looks like a title
     intro_patterns = [
         'here', 'suggest', 'perfect', 'delicious', 'enjoy',
         'this is', 'try this', 'sure!', 'absolutely', 'great choice',
+        'introduction', 'overview', 'welcome', 'i recommend',
+        'you might', 'you\'ll love', 'let me', 'i\'d suggest',
     ]
     for line in lines:
         stripped = line.strip()
@@ -168,16 +185,22 @@ def extract_recipe_name(recipe_content: str) -> str:
             continue
 
         # Clean markdown formatting
-        clean = stripped.replace('#', '').replace('*', '').strip()
+        clean = stripped.replace('#', '').replace('*', '').strip().rstrip(':').strip()
 
         if 3 <= len(clean) <= 80:
             return clean
 
-    # Fallback
+    # Fallback — skip intro/filler lines even here
     for line in lines:
-        clean = line.strip().replace('#', '').replace('*', '').strip()
-        if clean and len(clean) > 3:
-            return clean[:80]
+        clean = line.strip().replace('#', '').replace('*', '').strip().rstrip(':').strip()
+        if not clean or len(clean) <= 3:
+            continue
+        lower = clean.lower()
+        if any(p in lower for p in intro_patterns):
+            continue
+        if _is_section_header(clean):
+            continue
+        return clean[:80]
 
     return "Untitled Recipe"
 
