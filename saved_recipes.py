@@ -677,6 +677,27 @@ class SavedRecipesManager:
             recipe: Recipe data dictionary
             idx: Index for unique keys
         """
+        # Editable recipe title
+        current_name = recipe.get('recipe_name', 'Untitled Recipe')
+        name_col, save_col = st.columns([4, 1])
+        with name_col:
+            new_name = st.text_input(
+                "Recipe title",
+                value=current_name,
+                key=f"title_{recipe['id']}_{idx}",
+                label_visibility="collapsed",
+                placeholder="Recipe title",
+            )
+        with save_col:
+            if new_name != current_name:
+                if st.button("✏️ Rename", key=f"rename_{recipe['id']}_{idx}"):
+                    if new_name.strip():
+                        if self.update_recipe(recipe['id'], {'recipe_name': new_name.strip()}):
+                            st.success("Title updated!")
+                            st.rerun()
+                    else:
+                        st.warning("Title cannot be empty.")
+
         # Full metadata display
         st.markdown("**Recipe Details:**")
         metadata_cols = st.columns(3)
